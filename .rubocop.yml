@@ -6,6 +6,7 @@ require:
 AllCops:
   NewCops: enable
   Exclude:
+    - "rspec-tracer.gemspec"
     - "sample_projects/**/*"
     - "tmp/**/*"
     - "vendor/**/*"
@@ -37,10 +38,14 @@ Layout/MultilineOperationIndentation:
 
 Metrics/BlockLength:
   Exclude:
+    - "tasks/**/*"
     - "spec/**/*"
 
 Metrics/ClassLength:
   Max: 300
+
+Metrics/CyclomaticComplexity:
+  Max: 10
 
 Metrics/MethodLength:
   Max: 25

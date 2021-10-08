@@ -4,9 +4,10 @@ require 'msgpack'
 
 module RSpecTracer
   class Reporter
-    attr_reader :all_examples, :possibly_flaky_examples, :flaky_examples, :pending_examples,
-                :all_files, :modified_files, :deleted_files, :dependency, :reverse_dependency,
-                :examples_coverage, :last_run
+    attr_reader :all_examples, :interrupted_examples, :duplicate_examples,
+                :possibly_flaky_examples, :flaky_examples, :pending_examples,
+                :all_files, :modified_files, :deleted_files, :dependency,
+                :reverse_dependency, :examples_coverage, :last_run
 
     def initialize
       initialize_examples
@@ -17,6 +18,15 @@ module RSpecTracer
 
     def register_example(example)
       @all_examples[example[:example_id]] = example
+      @duplicate_examples[example[:example_id]] << example
+    end
+
+    def deregister_duplicate_examples
+      @duplicate_examples.select! { |_, examples| examples.count > 1 }
+
+      return if @duplicate_examples.empty?
+
+      @all_examples.reject! { |example_id, _| @duplicate_examples.key?(example_id) }
     end
 
     def on_example_skipped(example_id)
@@ -24,22 +34,41 @@ module RSpecTracer
     end
 
     def on_example_passed(example_id, result)
+      return if @duplicate_examples.key?(example_id)
+
       @passed_examples << example_id
       @all_examples[example_id][:execution_result] = formatted_execution_result(result)
     end
 
     def on_example_failed(example_id, result)
+      return if @duplicate_examples.key?(example_id)
+
       @failed_examples << example_id
       @all_examples[example_id][:execution_result] = formatted_execution_result(result)
     end
 
     def on_example_pending(example_id, result)
+      return if @duplicate_examples.key?(example_id)
+
       @pending_examples << example_id
       @all_examples[example_id][:execution_result] = formatted_execution_result(result)
     end
 
+    def register_interrupted_examples
+      @all_examples.each_pair do |example_id, example|
+        next if example.key?(:execution_result)
+
+        @interrupted_examples << example_id
+      end
+
+      return if @interrupted_examples.empty?
+
+      puts "RSpec tracer is not processing #{@interrupted_examples.count} interrupted examples"
+    end
+
     def register_deleted_examples(seen_examples)
       @deleted_examples = seen_examples.keys.to_set - (@skipped_examples | @all_examples.keys)
+      @deleted_examples -= @interrupted_examples
 
       @deleted_examples.select! do |example_id|
         example = seen_examples[example_id]
@@ -62,6 +91,14 @@ module RSpecTracer
 
     def register_pending_example(example_id)
       @pending_examples << example_id
+    end
+
+    def duplicate_example?(example_id)
+      @duplicate_examples.key?(example_id)
+    end
+
+    def example_interrupted?(example_id)
+      @interrupted_examples.include?(example_id)
     end
 
     def example_passed?(example_id)
@@ -118,6 +155,8 @@ module RSpecTracer
 
     def generate_reverse_dependency_report
       @dependency.each_pair do |example_id, files|
+        next if @interrupted_examples.include?(example_id)
+
         example_file = @all_examples[example_id][:rerun_file_name]
 
         files.each do |file_name|
@@ -131,13 +170,15 @@ module RSpecTracer
 
     def generate_last_run_report
       @last_run = {
-        run_id: @run_id,
         pid: RSpecTracer.pid,
         actual_count: RSpec.world.example_count + @skipped_examples.count,
         example_count: RSpec.world.example_count,
+        duplicate_examples: @duplicate_examples.sum { |_, examples| examples.count },
+        interrupted_examples: @interrupted_examples.count,
         failed_examples: @failed_examples.count,
         skipped_examples: @skipped_examples.count,
-        pending_examples: @pending_examples.count
+        pending_examples: @pending_examples.count,
+        flaky_examples: @flaky_examples.count
       }
     end
 
@@ -167,10 +208,43 @@ module RSpecTracer
       puts "RSpec tracer reports written to #{@cache_dir} (took #{elpased})"
     end
 
+    # rubocop:disable Metrics/AbcSize
+    def print_duplicate_examples
+      return if @duplicate_examples.empty?
+
+      total = @duplicate_examples.sum { |_, examples| examples.count }
+
+      puts '=' * 80
+      puts '   IMPORTANT NOTICE -- RSPEC TRACER COULD NOT IDENTIFY SOME EXAMPLES UNIQUELY'
+      puts '=' * 80
+      puts "RSpec tracer could not uniquely identify the following #{total} examples:"
+
+      justify = ' ' * 2
+      nested_justify = justify * 3
+
+      @duplicate_examples.each_pair do |example_id, examples|
+        puts "#{justify}- Example ID: #{example_id} (#{examples.count} examples)"
+
+        examples.each do |example|
+          description = example[:full_description].strip
+          file_name = example[:rerun_file_name].sub(%r{^/}, '')
+          line_number = example[:rerun_line_number]
+          location = "#{file_name}:#{line_number}"
+
+          puts "#{nested_justify}* #{description} (#{location})"
+        end
+      end
+
+      puts
+    end
+    # rubocop:enable Metrics/AbcSize
+
     private
 
     def initialize_examples
       @all_examples = {}
+      @duplicate_examples = Hash.new { |examples, example_id| examples[example_id] = [] }
+      @interrupted_examples = Set.new
       @passed_examples = Set.new
       @possibly_flaky_examples = Set.new
       @flaky_examples = Set.new

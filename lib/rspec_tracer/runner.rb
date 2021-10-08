@@ -8,6 +8,7 @@ module RSpecTracer
     EXAMPLE_RUN_REASON = {
       explicit_run: 'Explicit run',
       no_cache: 'No cache',
+      interrupted: 'Interrupted previously',
       flaky_example: 'Flaky example',
       failed_example: 'Failed previously',
       pending_example: 'Pending previously',
@@ -43,6 +44,10 @@ module RSpecTracer
       @reporter.register_example(example)
     end
 
+    def deregister_duplicate_examples
+      @reporter.deregister_duplicate_examples
+    end
+
     def on_example_skipped(example_id)
       @reporter.on_example_skipped(example_id)
     end
@@ -59,6 +64,10 @@ module RSpecTracer
       @reporter.on_example_pending(example_id, execution_result)
     end
 
+    def register_interrupted_examples
+      @reporter.register_interrupted_examples
+    end
+
     def register_deleted_examples
       @reporter.register_deleted_examples(@cache.all_examples)
     end
@@ -73,6 +82,9 @@ module RSpecTracer
 
       @cache.cached_examples_coverage.each_pair do |example_id, example_coverage|
         example_coverage.each_pair do |file_path, line_coverage|
+          next if @reporter.example_interrupted?(example_id) ||
+            @reporter.duplicate_example?(example_id)
+
           next unless @reporter.example_skipped?(example_id)
 
           file_name = RSpecTracer::SourceFile.file_name(file_path)
@@ -90,16 +102,18 @@ module RSpecTracer
     # rubocop:enable Metrics/AbcSize
 
     def register_dependency(examples_coverage)
+      filtered_files = Set.new
+
       examples_coverage.each_pair do |example_id, example_coverage|
+        next if @reporter.example_interrupted?(example_id) ||
+          @reporter.duplicate_example?(example_id)
+
         register_example_files_dependency(example_id)
 
         example_coverage.each_key do |file_path|
-          source_file = RSpecTracer::SourceFile.from_path(file_path)
+          next if filtered_files.include?(file_path)
 
-          next if RSpecTracer.filters.any? { |filter| filter.match?(source_file) }
-
-          @reporter.register_source_file(source_file)
-          @reporter.register_dependency(example_id, source_file[:file_name])
+          filtered_files << file_path unless register_file_dependency(example_id, file_path)
         end
       end
 
@@ -119,6 +133,9 @@ module RSpecTracer
         @reporter.register_source_file(source_file)
 
         @reporter.all_examples.each_key do |example_id|
+          next if @reporter.example_interrupted?(example_id) ||
+            @reporter.duplicate_example?(example_id)
+
           @reporter.register_dependency(example_id, source_file[:file_name])
         end
       end
@@ -144,6 +161,12 @@ module RSpecTracer
       end
 
       @reporter.write_reports
+      @reporter.print_duplicate_examples
+    end
+
+    def non_zero_exit_code?
+      !@reporter.duplicate_examples.empty? &&
+        ENV.fetch('RSPEC_TRACER_FAIL_ON_DUPLICATES', 'true') == 'true'
     end
 
     private
@@ -166,6 +189,7 @@ module RSpecTracer
     end
 
     def filter_by_example_status
+      add_previously_interrupted_examples
       add_previously_flaky_examples
       add_previously_failed_examples
       add_previously_pending_examples
@@ -180,10 +204,17 @@ module RSpecTracer
       end
     end
 
+    def add_previously_interrupted_examples
+      @cache.interrupted_examples.each do |example_id|
+        @filtered_examples[example_id] = EXAMPLE_RUN_REASON[:interrupted]
+      end
+    end
+
     def add_previously_flaky_examples
       @cache.flaky_examples.each do |example_id|
         @filtered_examples[example_id] = EXAMPLE_RUN_REASON[:flaky_example]
 
+        next unless @cache.dependency.key?(example_id)
         next unless (@changed_files & @cache.dependency[example_id]).empty?
 
         @reporter.register_possibly_flaky_example(example_id)
@@ -196,6 +227,7 @@ module RSpecTracer
 
         @filtered_examples[example_id] = EXAMPLE_RUN_REASON[:failed_example]
 
+        next unless @cache.dependency.key?(example_id)
         next unless (@changed_files & @cache.dependency[example_id]).empty?
 
         @reporter.register_possibly_flaky_example(example_id)
@@ -244,6 +276,9 @@ module RSpecTracer
     end
 
     def register_example_files_dependency(example_id)
+      return if @reporter.example_interrupted?(example_id) ||
+        @reporter.duplicate_example?(example_id)
+
       example = @reporter.all_examples[example_id]
 
       register_example_file_dependency(example_id, example[:file_name])
@@ -254,10 +289,27 @@ module RSpecTracer
     end
 
     def register_example_file_dependency(example_id, file_name)
+      return if @reporter.example_interrupted?(example_id) ||
+        @reporter.duplicate_example?(example_id)
+
       source_file = RSpecTracer::SourceFile.from_name(file_name)
 
       @reporter.register_source_file(source_file)
       @reporter.register_dependency(example_id, file_name)
+    end
+
+    def register_file_dependency(example_id, file_path)
+      return if @reporter.example_interrupted?(example_id) ||
+        @reporter.duplicate_example?(example_id)
+
+      source_file = RSpecTracer::SourceFile.from_path(file_path)
+
+      return false if RSpecTracer.filters.any? { |filter| filter.match?(source_file) }
+
+      @reporter.register_source_file(source_file)
+      @reporter.register_dependency(example_id, source_file[:file_name])
+
+      true
     end
 
     def generate_examples_status_report
