@@ -29,11 +29,15 @@ module RSpecTracer
 
     def compute_diff(example_id)
       peek_coverage.each_pair do |file_path, current_stats|
-        if @coverage.key?(file_path)
-          existing_file_diff_coverage(example_id, file_path, current_stats)
-        else
+        unless @coverage.key?(file_path)
           missing_file_diff_coverage(example_id, file_path, current_stats)
+
+          next
         end
+
+        next if current_stats == @coverage[file_path]
+
+        existing_file_diff_coverage(example_id, file_path, current_stats)
       end
     end
 
@@ -163,8 +167,17 @@ module RSpecTracer
     end
 
     def line_stub(file_path)
+      case RUBY_ENGINE
+      when 'ruby'
+        ruby_line_stub(file_path)
+      when 'jruby'
+        jruby_line_stub(file_path)
+      end
+    end
+
+    def ruby_line_stub(file_path)
       lines = File.foreach(file_path).map { nil }
-      iseqs = [RubyVM::InstructionSequence.compile_file(file_path)]
+      iseqs = [::RubyVM::InstructionSequence.compile_file(file_path)]
 
       until iseqs.empty?
         iseq = iseqs.pop
@@ -175,5 +188,28 @@ module RSpecTracer
 
       lines
     end
+
+    # rubocop:disable Metrics/AbcSize
+    def jruby_line_stub(file_path)
+      lines = File.foreach(file_path).map { nil }
+      root_node = ::JRuby.parse(File.read(file_path))
+
+      visitor = org.jruby.ast.visitor.NodeVisitor.impl do |_name, node|
+        if node.newline?
+          if node.respond_to?(:position)
+            lines[node.position.line] = 0
+          else
+            lines[node.line] = 0
+          end
+        end
+
+        node.child_nodes.each { |child| child&.accept(visitor) }
+      end
+
+      root_node.accept(visitor)
+
+      lines
+    end
+    # rubocop:enable Metrics/AbcSize
   end
 end

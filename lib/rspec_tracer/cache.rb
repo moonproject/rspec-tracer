@@ -4,8 +4,8 @@ require 'msgpack'
 
 module RSpecTracer
   class Cache
-    attr_reader :all_examples, :flaky_examples, :failed_examples, :pending_examples,
-                :all_files, :dependency, :run_id
+    attr_reader :all_examples, :interrupted_examples, :flaky_examples, :failed_examples,
+                :pending_examples, :all_files, :dependency, :run_id
 
     def initialize
       @run_id = last_run_id
@@ -14,6 +14,7 @@ module RSpecTracer
       @cached = false
 
       @all_examples = {}
+      @interrupted_examples = Set.new
       @flaky_examples = Set.new
       @failed_examples = Set.new
       @pending_examples = Set.new
@@ -76,7 +77,11 @@ module RSpecTracer
       end
 
       @all_examples.each_value do |example|
-        example[:execution_result].transform_keys!(&:to_sym)
+        if example.key?(:execution_result)
+          example[:execution_result].transform_keys!(&:to_sym)
+        else
+          @interrupted_examples << example[:example_id]
+        end
 
         example[:run_reason] = nil
       end

@@ -31,11 +31,13 @@ require_relative 'rspec_tracer/version'
 
 module RSpecTracer
   class << self
-    attr_accessor :running, :pid
+    attr_accessor :running, :pid, :no_examples
 
     def start(&block)
       RSpecTracer.running = false
       RSpecTracer.pid = Process.pid
+
+      return if RUBY_ENGINE == 'jruby' && !valid_jruby_opts?
 
       puts 'Started RSpec tracer'
 
@@ -70,6 +72,8 @@ module RSpecTracer
         end
       end
 
+      runner.deregister_duplicate_examples
+
       [to_run, groups.to_a]
     end
     # rubocop:enable Metrics/AbcSize
@@ -78,6 +82,10 @@ module RSpecTracer
       return unless RSpecTracer.pid == Process.pid && RSpecTracer.running
 
       run_exit_tasks
+
+      ::Kernel.exit(1) if runner.non_zero_exit_code?
+    ensure
+      RSpecTracer.running = false
     end
 
     def start_example_trace
@@ -124,6 +132,22 @@ module RSpecTracer
 
     private
 
+    def valid_jruby_opts?
+      require 'jruby'
+
+      return true if Java::OrgJruby::RubyInstanceConfig.FULL_TRACE_ENABLED &&
+        JRuby.runtime.object_space_enabled?
+
+      puts <<-WARN.strip.gsub(/\s+/, ' ')
+        RSpec Tracer is not running as it requires debug and object space enabled. Use
+        command line options "--debug" and "-X+O" or set the "debug.fullTrace=true" and
+        "objectspace.enabled=true" options in your .jrubyrc file. You can also use
+        JRUBY_OPTS="--debug -X+O".
+      WARN
+
+      false
+    end
+
     def initial_setup
       unless setup_rspec
         puts 'Could not find a running RSpec process'
@@ -157,15 +181,11 @@ module RSpecTracer
     def setup_coverage
       @simplecov = defined?(SimpleCov) && SimpleCov.running
 
-      if simplecov?
-        # rubocop:disable Lint/EmptyBlock
-        SimpleCov.at_exit {}
-        # rubocop:enable Lint/EmptyBlock
-      else
-        require 'coverage'
+      return if simplecov?
 
-        ::Coverage.start
-      end
+      require 'coverage'
+
+      ::Coverage.start
     end
 
     def setup_trace_point
@@ -178,11 +198,13 @@ module RSpecTracer
     end
 
     def run_exit_tasks
-      generate_reports
+      if RSpecTracer.no_examples
+        puts 'Skipped reports generation since all examples were filtered out'
+      else
+        generate_reports
+      end
 
       simplecov? ? run_simplecov_exit_task : run_coverage_exit_task
-    ensure
-      RSpecTracer.running = false
     end
 
     def generate_reports
@@ -197,6 +219,7 @@ module RSpecTracer
     def process_dependency
       starting = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
+      runner.register_interrupted_examples
       runner.register_deleted_examples
       runner.register_dependency(coverage_reporter.examples_coverage)
       runner.register_untraced_dependency(@traced_files)
@@ -227,12 +250,13 @@ module RSpecTracer
 
       puts 'SimpleCov will now generate coverage report (<3 RSpec tracer)'
 
-      SimpleCov.result.format!
+      coverage_reporter.record_coverage if RSpecTracer.no_examples
     end
 
     def run_coverage_exit_task
       starting = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
+      coverage_reporter.record_coverage if RSpecTracer.no_examples
       coverage_reporter.generate_final_coverage
 
       file_name = File.join(RSpecTracer.coverage_path, 'coverage.json')
@@ -253,7 +277,7 @@ module RSpecTracer
         }
       }
 
-      File.write(file_name, JSON.generate(report))
+      File.write(file_name, JSON.pretty_generate(report))
     end
 
     def print_coverage_stats(file_name, elpased)

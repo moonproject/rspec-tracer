@@ -1,3 +1,45 @@
+## [0.9.3] - 2021-10-03
+
+Generate reports ignoring duplicate examples (#42)
+
+## [0.9.2] - 2021-09-30
+
+### Fixed
+
+Caches getting corrupted on interrupts (#39)
+
+## [0.9.1] - 2021-09-23
+
+### Fixed
+
+Flaky and failed examples dependency check (#38)
+
+## [0.9.0] - 2021-09-15
+
+### Added
+
+- Handling all examples filtered by RSpec (#34)
+- Warn on incorrect analysis to stop using RSpec Tracer (#35)
+- Run `SimpleCov.at_exit` hook (#36)
+
+## [0.8.0] - 2021-09-13
+
+### Fixed
+
+Unable to find cache in case of history rewrites (#33)
+
+## [0.7.0] - 2021-09-10
+
+### Fixed
+
+Missing spec files for the gem
+
+## [0.6.2] - 2021-09-07
+
+### Added
+
+Improvements towards reducing dependency and coverage processing time (#26)
+
 ## [0.6.1] - 2021-09-06
 
 ### Fixed

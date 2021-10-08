@@ -5,20 +5,18 @@ Given('I am working on the project {string}') do |project|
   @cache_dir = 'rspec_tracer_cache'
   @coverage_dir = 'rspec_tracer_coverage'
   @data_dir = "data/#{@project}"
-  @run_id = case @project
-            when 'rails_app'
-              '6654a84c672a717904112cef7503d7a1'
-            when 'ruby_app'
-              '63df6c782675a201fbef23140bd868e2'
-            end
+  @run_id = {
+    rails_app: '6654a84c672a717904112cef7503d7a1',
+    ruby_app: '63df6c782675a201fbef23140bd868e2',
+    calculator_app: 'ac50ff82ef0e8c97f7142ae07483d81d',
+    calculator_2_app: '35194a37e68446e9d6960c46e717fd44',
+    calculator_3_app: 'ac50ff82ef0e8c97f7142ae07483d81d'
+  }[@project.to_sym]
 
   project_dir = File.dirname(__FILE__)
 
   cd('.') do
     FileUtils.rm_rf('project')
-
-    FileUtils.rm_rf(File.join(project_dir, '../../sample_projects/coverage'))
-    FileUtils.rm_rf(File.join(project_dir, '../../sample_projects/rspec_tracer'))
 
     FileUtils.cp_r(
       File.join(project_dir, "../../sample_projects/#{project}/"),
@@ -128,7 +126,7 @@ When('I run specs using {string}') do |command|
     When I successfully run `bundle install --jobs 3 --retry 3` for up to 120 seconds
     Then I validate simplecov version
     And I validate rspec or rspec rails version
-    When I run `bundle exec #{command}`
+    And I run `bundle exec #{command}`
   )
 end
 
@@ -137,7 +135,7 @@ Then('I validate simplecov version') do
     expected = Gem::Dependency.new('simplecov', ENV['SIMPLECOV_VERSION'])
     actual = Gem::Dependency.new(
       'simplecov',
-      `bundle show simplecov`.chomp.split('/').last.split('-').last
+      `bundle show simplecov`.chomp.split("\n").first.split('/').last.split('-').last
     )
 
     expect(expected =~ actual).to eq(true)
@@ -150,14 +148,14 @@ Then('I validate rspec or rspec rails version') do
     when 'rails_app'
       rspec_gem = 'rspec-rails'
       expected = Gem::Dependency.new(rspec_gem, ENV['RSPEC_RAILS_VERSION'])
-    when 'ruby_app'
+    when 'ruby_app', 'calculator_app', 'calculator_2_app', 'calculator_3_app'
       rspec_gem = 'rspec'
       expected = Gem::Dependency.new(rspec_gem, ENV['RSPEC_VERSION'])
     end
 
     actual = Gem::Dependency.new(
       rspec_gem,
-      `bundle show #{rspec_gem}`.chomp.split('/').last.split('-').last
+      `bundle show #{rspec_gem}`.chomp.split("\n").first.split('/').last.split('-').last
     )
 
     expect(expected =~ actual).to eq(true)

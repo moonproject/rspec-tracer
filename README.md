@@ -1,8 +1,12 @@
 ![](./readme_files/rspec_tracer.png)
 
-RSpec Tracer is a **specs dependency analysis tool** and a **test skipper for RSpec**.
-It maintains a list of files for each test, enabling itself to skip tests in the
-subsequent runs if none of the dependent files are changed.
+[![Maintainability](https://api.codeclimate.com/v1/badges/eabce2757839c08d8f8d/maintainability)](https://codeclimate.com/github/avmnu-sng/rspec-tracer/maintainability)
+[![Test Coverage](https://api.codeclimate.com/v1/badges/eabce2757839c08d8f8d/test_coverage)](https://codeclimate.com/github/avmnu-sng/rspec-tracer/test_coverage)
+[![Gem Version](https://badge.fury.io/rb/rspec-tracer.svg)](https://badge.fury.io/rb/rspec-tracer)
+
+RSpec Tracer is a **specs dependency analyzer**, **flaky tests detector**, **tests accelerator**,
+and **coverage reporter** tool. It maintains a list of files for each test, enabling
+itself to skip tests in the subsequent runs if none of the dependent files are changed.
 
 It uses [Ruby's built-in coverage library](https://ruby-doc.org/stdlib/libdoc/coverage/rdoc/Coverage.html)
 to keep track of the coverage for each test. For each test executed, the coverage
@@ -18,45 +22,24 @@ Knowing the examples and files dependency gives us a better insight into the cod
 and we have **a clear idea of what to test for when making any changes**. With this data,
 we can also analyze the coupling between different components and much more.
 
-## Note
+RSpec Tracer requires **Ruby 2.5+** and **rspec-core >= 3.6.0**. To use with **Rails 5+**,
+make sure to use **rspec-rails >= 4.0.0**. If you are using SimpleCov, it is
+recommended to use **simplecov >= 0.12.0**. To use RSpec Tracer **cache on CI**, you
+need to have an **S3 bucket** and **[AWS CLI](https://aws.amazon.com/cli/)**
+installed.
 
-You should take some time and go through the **[document](./RSPEC_TRACER.md)** describing
-the **intention** and implementation details of **managing dependency**, **managing flaky tests**,
-**skipping tests**, and **caching on CI**. You must go through the README file before
-integrating the gem into your project to better understand what is happening.
+> You should take some time and go through the **[document](./RSPEC_TRACER.md)** describing the **intention** and implementation details of **managing dependency**, **managing flaky tests**, **skipping tests**, and **caching on CI**.
 
 ## Table of Contents
 
 * [Demo](#demo)
-* [Installation](#installation)
-  * [Compatibility](#compatibility)
-  * [Additional Tools](#additional-tools)
 * [Getting Started](#getting-started)
-* [Environment Variables](#environment-variables)
-  * [BUNDLE_PATH](#bundle_path)
-  * [CI](#ci)
-  * [LOCAL_AWS](#local_aws)
-  * [RSPEC_TRACER_NO_SKIP](#rspec_tracer_no_skip)
-  * [RSPEC_TRACER_S3_URI](#rspec_tracer_s3_uri)
-  * [RSPEC_TRACER_UPLOAD_LOCAL_CACHE](#rspec_tracer_upload_local_cache)
-  * [RSPEC_TRACER_VERBOSE](#rspec_tracer_verbose)
-  * [TEST_SUITES](#test_suites)
-  * [TEST_SUITE_ID](#test_suite_id)
-* [Sample Reports](#sample-reports)
-    * [Examples](#examples)
-    * [Flaky Examples](#flaky-examples)
-    * [Examples Dependency](#examples-dependency)
-    * [Files Dependency](#files-dependency)
-* [Configuring RSpec Tracer](#configuring-rspec-tracer)
+  * [Working with JRuby](#working-with-jruby)
+* [Configuring CI Caching](#configuring-ci-caching)
+* [Advanced Configuration](#advanced-configuration)
 * [Filters](#filters)
-  * [Defining Custom Filteres](#defining-custom-filteres)
-    * [String Filter](#string-filter)
-    * [Regex Filter](#regex-filter)
-    * [Block Filter](#block-filter)
-    * [Array Filter](#array-filter)
-* [Contributing](#contributing)
-* [License](#license)
-* [Code of Conduct](#code-of-conduct)
+* [Environment Variables](#environment-variables)
+* [Duplicate Examples](#duplicate-examples)
 
 ## Demo
 
@@ -66,175 +49,128 @@ integrating the gem into your project to better understand what is happening.
 **Next Run**
 ![](./readme_files/next_run.gif)
 
+You get the following three reports:
 
-## Installation
+### All Examples Report
 
-Add this line to your `Gemfile` and `bundle install`:
-```ruby
-gem 'rspec-tracer', group: :test, require: false
-```
+These reports provide basic test information:
 
-And, add the followings to your `.gitignore`:
-```
-/rspec_tracer_cache/
-/rspec_tracer_coverage/
-/rspec_tracer_report/
-```
+**First Run**
 
-### Compatibility
+![](./readme_files/examples_report_first_run.png)
 
-RSpec Tracer requires **Ruby 2.5+** and **rspec-core >= 3.6.0**. To use with **Rails 5+**,
-make sure to use **rspec-rails >= 4.0.0**. If you are using SimpleCov, it is
-recommended to use **simplecov >= 0.12.0**.
+**Next Run**
 
-### Additional Tools
+![](./readme_files/examples_report_next_run.png)
 
-To use RSpec Tracer on CI, you need to have an **S3 bucket** and
-**[AWS CLI](https://aws.amazon.com/cli/)** installed.
+### Duplicate Examples Report
+
+These reports provide duplicate tests information.
+
+![](./readme_files/duplicate_examples_report.png)
+
+### Flaky Examples Report
+
+These reports provide flaky tests information. Assuming **the following two tests
+failed in the first run.**
+
+**Next Run**
+
+![](./readme_files/flaky_examples_report_first_run.png)
+
+**Another Run**
+
+![](./readme_files/flaky_examples_report_next_run.png)
+
+### Examples Dependency Report
+
+These reports show a list of dependent files for each test.
+
+![](./readme_files/examples_dependency_report.png)
+
+### Files Dependency Report
+
+These reports provide information on the total number of tests that will run after changing this particular file.
+
+![](./readme_files/files_dependency_report.png)
 
 ## Getting Started
 
-1. **Load and Start RSpec Tracer**
+1. Add this line to your `Gemfile` and `bundle install`:
+    ```ruby
+    gem 'rspec-tracer', '~> 0.9', group: :test, require: false
+    ```
 
-    - **With SimpleCov**
-
-        If you are using `SimpleCov`, load RSpec Tracer right after the SimpleCov load
-        and launch:
-
-        ```ruby
-        require 'simplecov'
-        SimpleCov.start
-
-        # Load RSpec Tracer
-        require 'rspec_tracer'
-        RSpecTracer.start
-        ```
-
-        Currently using RSpec Tracer with SimpleCov has the following two limitations:
-        - SimpleCov **won't be able to provide branch coverage report** even when enabled.
-        - RSpec Tracer **nullifies the `SimpleCov.at_exit`** callback.
-
-    - **Without SimpleCov**
-
-        Load and launch RSpec Tracer at the very top of `spec_helper.rb` (or `rails_helper.rb`,
-        `test/test_helper.rb`). Note that `RSpecTracer.start` must be issued **before loading
-        any of the application code.**
-
-        ```ruby
-        # Load RSpec Tracer
-        require 'rspec_tracer'
-        RSpecTracer.start
-        ```
-
-2. To enable RSpec Tracer to share cache between different builds on CI, update the
-Rakefile in your project to have the following:
+    And, add the followings to your `.gitignore`:
+    ```
+    /rspec_tracer_cache/
+    /rspec_tracer_coverage/
+    /rspec_tracer_report/
+    ```
+2. Load and launch RSpec Tracer at the very top of `spec_helper.rb` (or `rails_helper.rb`,
+`test/test_helper.rb`). Note that `RSpecTracer.start` must be issued **before loading
+any of the application code.**
 
     ```ruby
-    spec = Gem::Specification.find_by_name('rspec-tracer')
-
-    load "#{spec.gem_dir}/lib/rspec_tracer/remote_cache/Rakefile"
+    # Load RSpec Tracer
+    require 'rspec_tracer'
+    RSpecTracer.start
     ```
-3. Before running tests, download the remote cache using the following rake task:
 
-    ```sh
-    bundle exec rake rspec_tracer:remote_cache:download
+    **If you are using SimpleCov**, load RSpec Tracer right after the SimpleCov load
+    and launch:
+
+    ```ruby
+    require 'simplecov'
+    SimpleCov.start
+
+    # Load RSpec Tracer
+    require 'rspec_tracer'
+    RSpecTracer.start
     ```
-4. Run the tests with RSpec using `bundle exec rspec`.
-5. After running tests, upload the local cache using the following rake task:
 
-    ```sh
-    bundle exec rake rspec_tracer:remote_cache:upload
-    ```
-6. After running your tests, open `rspec_tracer_report/index.html` in the
-browser of your choice.
+    If you use RSpec Tracer with SimpleCov, then **SimpleCov would not report branch
+    coverage results even when enabled**.
 
-## Environment Variables
+3. After running your tests, open `rspec_tracer_report/index.html` in the browser
+of your choice.
 
-To get better control on execution, you can use the following two environment variables:
+### Working with JRuby
 
-### BUNDLE_PATH
-
-Since the bundler uses a vendor directory inside the project, it might cause slowness
-depending on the vendor size. You can configure the bundle path outside of the project
-using `BUNDLE_PATH` environment variable, for example, `BUNDLE_PATH=$HOME/vendor/bundle`.
-Make sure to cache this directory in the CI configuration.
-
-### CI
-
-Mostly all the CI have `CI=true`. If not, you should explicitly set it to `true`.
-
-### LOCAL_AWS
-
-In case you want to test out the caching feature in the local development environment.
-You can install [localstack](https://github.com/localstack/localstack) and
-[awscli-local](https://github.com/localstack/awscli-local) and then invoke the
-rake tasks with `LOCAL_AWS=true`.
-
-### RSPEC_TRACER_NO_SKIP
-
-The default value is `false.` If set to `true`, the RSpec Tracer will not skip
-any tests. Note that it will continue to maintain cache files and generate reports.
+It is recommend to use **JRuby 9.2.10.0+**. Also, configure it with **`JRUBY_OPTS="--debug -X+O"`**
+or have the `.jrubyrc` file:
 
 ```ruby
-RSPEC_TRACER_NO_SKIP=true bundle exec rspec
+debug.fullTrace=true
+objectspace.enabled=true
 ```
 
-### RSPEC_TRACER_S3_URI
+## Configuring CI Caching
 
-You should provide the S3 bucket path to store the cache files.
-
+To enable RSpec Tracer to share cache between different builds on CI, update the
+Rakefile in your project to have the following:
 ```ruby
-export RSPEC_TRACER_S3_URI=s3://ci-artifacts-bucket/rspec-tracer-cache
+spec = Gem::Specification.find_by_name('rspec-tracer')
+
+load "#{spec.gem_dir}/lib/rspec_tracer/remote_cache/Rakefile"
 ```
 
-### RSPEC_TRACER_UPLOAD_LOCAL_CACHE
-
-By default, RSpec Tracer does not upload local cache files. You can set this
-environment variable to `true` to upload the local cache to S3.
-
-### RSPEC_TRACER_VERBOSE
-
-To print the intermediate steps and time taken, use this environment variable:
-
+Before running tests, download the remote cache using the following rake task:
 ```sh
-export RSPEC_TRACER_VERBOSE=true
+bundle exec rake rspec_tracer:remote_cache:download
 ```
 
-### TEST_SUITES
-
-Set this environment variable when using test suite id. It determines the total
-number of different test suites you are running.
-
-```ruby
-export TEST_SUITES=8
-```
-
-### TEST_SUITE_ID
-
-If you have a large set of tests to run, it is recommended to run them in
-separate groups. This way, RSpec Tracer is not overwhelmed with loading massive
-cached data in the memory. Also, it generate and use cache for specific test suites
-and not merge them.
-
-```ruby
-TEST_SUITE_ID=1 bundle exec rspec spec/models
-TEST_SUITE_ID=2 bundle exec rspec spec/helpers
-```
-
-If you run parallel builds on the CI, you should specify the test suite ID and
-the total number of test suites when downloading the cache files.
-
+After running tests, upload the local cache using the following rake task:
 ```sh
-$ TEST_SUITES=5 TEST_SUITE_ID=1 bundle exec rake rspec_tracer:remote_cache:download
+bundle exec rake rspec_tracer:remote_cache:upload
 ```
 
-In this case, the appropriate cache should have all the cache files available on
-the S3 for each test suite, not just for the current one. Also, while uploading,
-make sure to provide the test suite id.
-
-```sh
-$ TEST_SUITE_ID=1 bundle exec rake rspec_tracer:remote_cache:upload
-```
+You must set the following two environment variables:
+- **`GIT_BRANCH`** is the git branch name you are running the CI build on.
+- **`RSPEC_TRACER_S3_URI`** is the S3 bucket path to store the cache files.
+  ```sh
+  export RSPEC_TRACER_S3_URI=s3://ci-artifacts-bucket/rspec-tracer-cache
+  ```
 
 ## Serializers
 
@@ -275,146 +211,295 @@ You will want this to always be true `deserialize(serialize(object)) == object` 
 
 Then to use your custom serializer you'll need to specify your serializer's name in `camel_case`. So in the given example I would set the `cache_serializer` to `my_custom`
 
-## Sample Reports
-
-You get the following three reports:
-
-### Examples
-
-These reports provide basic test information:
-
-**First Run**
-
-![](./readme_files/examples_report_first_run.png)
-
-**Next Run**
-
-![](./readme_files/examples_report_next_run.png)
-
-### Flaky Examples
-
-These reports provide flaky tests information. Assuming **the following two tests
-failed in the first run.**
-
-**Next Run**
-
-![](./readme_files/flaky_examples_report_first_run.png)
-
-**Another Run**
-
-![](./readme_files/flaky_examples_report_next_run.png)
-
-### Examples Dependency
-
-These reports show a list of dependent files for each test.
-
-![](./readme_files/examples_dependency_report.png)
-
-### Files Dependency
-
-These reports provide information on the total number of tests that will run after changing this particular file.
-
-![](./readme_files/files_dependency_report.png)
-
-## Configuring RSpec Tracer
+## Advanced Configuration
 
 Configuration settings can be applied in three formats, which are completely equivalent:
 
 - The most common way is to configure it directly in your start block:
-
-    ```ruby
-    RSpecTracer.start do
-      config_option 'foo'
-    end
-    ```
+  ```ruby
+  RSpecTracer.start do
+    config_option 'foo'
+  end
+  ```
 - You can also set all configuration options directly:
-
-    ```ruby
-    RSpecTracer.config_option 'foo'
-    ```
+  ```ruby
+  RSpecTracer.config_option 'foo'
+  ```
 
 - If you do not want to start tracer immediately after launch or want to add
 additional configuration later on in a concise way, use:
+  ```ruby
+  RSpecTracer.configure do
+    config_option 'foo'
+  end
+  ```
 
-    ```ruby
-    RSpecTracer.configure do
-      config_option 'foo'
-    end
-    ```
+The available configuration options are:
+
+- **`root dir`** to set the project root. The default value is the current working
+directory.
+- **`add_filter filter`** to apply [filters](#filters) on the source files to
+exclude them from the dependent files list.
+- **`filters.clear`** to remove the default configured dependent files filters.
+- **`add_coverage_filter filter`** to apply [filters](#filters) on the source files
+to exclude them from the coverage report.
+- **`coverage_filters.clear`** to remove the default configured coverage files filters.
+- **`coverage_track_files glob`** to include files in the given glob pattern in
+the coverage report if these files are not already present.
+
+```ruby
+RSpecTracer.start do
+  # Configure project root
+  root '/tmp/my_project'
+
+  # Clear existing filters
+  filters.clear
+  # Add dependent files filter
+  add_filter %r{^/tasks/}
+
+  # Clear existing coverage filters
+  coverage_filters.clear
+  # Add coverage files filter
+  add_coverage_filter %w[/features/ /spec/ /tests/]
+
+  # Define glob to track files in the coverage report
+  coverage_track_files '{app,lib}/**/*.rb'
+end
+```
+
+You can configure the RSpec Tracer reports directories using the following environment
+variables:
+
+- **`RSPEC_TRACER_CACHE_DIR`** to update the default cache directory (`rspec_tracer_cache`).
+  ```sh
+  export RSPEC_TRACER_CACHE_DIR=/tmp/rspec_tracer_cache
+  ```
+- **`RSPEC_TRACER_COVERAGE_DIR`** to update the default coverage directory (`rspec_tracer_coverage`).
+  ```sh
+  export RSPEC_TRACER_CACHE_DIR=/tmp/rspec_tracer_coverage
+  ```
+- **`RSPEC_TRACER_REPORT_DIR`** to update the default html reports directory (`rspec_tracer_report`).
+  ```sh
+  export RSPEC_TRACER_CACHE_DIR=/tmp/rspec_tracer_report
+  ```
+
+These settings are available through environment variables because the rake tasks
+to download and upload the cache files need to use the same directories.
 
 ## Filters
 
-RSpec Tracer supports two types of filters:
+By default, RSpec Tracer ignores all the files outside of the project root directory -
+otherwise you would end up with the source files in the gems you are using in the
+project. It also applies the following filters:
+```ruby
+RSpecTracer.configure do
+  add_filter '/vendor/bundle/'
 
-- To exclude selected files from the dependency list of tests:
-
-    ```ruby
-    RSpecTracer.start do
-      add_filter %r{^/helpers/}
-    end
-    ```
-- To exclude selected files from the coverage data. You should only use this
-when not using SimpleCov.
-
-    ```ruby
-    RSpecTracer.start do
-      add_coverage_filter %r{^/tasks/}
-    end
-    ```
-
-By default, a filter is applied that removes all files OUTSIDE of your project's
-root directory - otherwise you'd end up with the source files in the gems you are
-using as tests dependency.
+  add_coverage_filter %w[
+    /autotest/
+    /features/
+    /spec/
+    /test/
+    /vendor/bundle/
+  ].freeze
+end
+```
 
 ### Defining Custom Filteres
 
 You can currently define a filter using either a String or Regexp (that will then
-be Regexp-matched against each source file's path), a block or by passing in your
-own Filter class.
+be Regexp-matched against each source file's name relative to the project root),
+a block or by passing in your own Filter class.
 
-#### String Filter
+- **String Filter**: The string filter matches files that have the given string
+in their name. For example, the following string filter will remove all files that
+have `"/helpers/"` in their name.
+  ```ruby
+  RSpecTracer.start do
+    add_filter '/helpers/'
+  end
+  ```
 
+- **Regex Filter**: The regex filter removes all files that have a successful name
+match against the given regex expression. This simple regex filter will remove
+all files that start with `%r{^/helper/}` in their name:
+  ```ruby
+  RSpecTracer.start do
+    add_filter %r{^/helpers/}
+  end
+  ```
+
+- **Block Filter**: Block filters receive a `Hash` object and expect your block
+to return either **true** (if the file is to be removed from the result) or **false**
+(if the result should be kept). In the below example, the filter will remove all
+files that match `"/helpers/"` in their path.
+  ```ruby
+  RSpecTracer.start do
+    add_filter do |source_file|
+      source_file[:file_path].include?('/helpers/')
+    end
+  end
+  ```
+
+  You can also use `source_file[:name]` to define the return value of the block
+  filter for the given source file.
+
+- **Array Filter**: You can pass in an array containing any of the other filter types:
+  ```ruby
+  RSpecTracer.start do
+    add_filter ['/helpers/', %r{^/utils/}]
+  end
+  ```
+
+## Environment Variables
+
+To get better control on execution, you can use the following environment variables
+whenever required.
+
+- **`LOCAL_AWS (default: false)`:** In case you want to test out the caching feature in the local
+development environment. You can install [localstack](https://github.com/localstack/localstack)
+and [awscli-local](https://github.com/localstack/awscli-local) and then invoke the
+rake tasks with `LOCAL_AWS=true`.
+
+- **`RSPEC_TRACER_FAIL_ON_DUPLICATES (default: true)`:** By default, RSpec Tracer
+exits with one if there are [duplicate examples](#duplicate-examples).
+
+- **`RSPEC_TRACER_NO_SKIP (default: false)`:** Use this environment variables to
+not skip any tests. Note that it will continue to maintain cache files and generate
+reports.
+
+- **`RSPEC_TRACER_UPLOAD_LOCAL_CACHE (default: false)`:** By default, RSpec Tracer
+does not upload local cache files. You can set this environment variable to `true`
+to upload the local cache to S3.
+
+- **`RSPEC_TRACER_VERBOSE (default: false)`:** To print the intermediate steps
+and time taken, use this environment variable.
+
+- **`TEST_SUITES`:** Set this environment variable when running parallel builds
+in the CI. It determines the total number of different test suites you are running.
+  ```sh
+  export TEST_SUITES=8
+  ```
+
+- **`TEST_SUITE_ID`:** If you have a large set of tests to run, it is recommended
+to run them in separate groups. This way, RSpec Tracer is not overwhelmed with
+loading massive cached data in the memory. Also, it generates and uses cache for
+specific test suites and not merge them.
+  ```sh
+  TEST_SUITE_ID=1 bundle exec rspec spec/models
+  TEST_SUITE_ID=2 bundle exec rspec spec/helpers
+  ```
+
+## Duplicate Examples
+
+To uniquely identify the examples is one of the requirements for the correctness
+of the RSpec Tracer. Sometimes, it would not be possible to do so depending upon
+how we have written the specs. The following attributes determine the uniqueness:
+
+- The example group
+- The example full description
+- The spec file location, i.e., file name and line number
+- All the shared examples and contexts
+
+Consider the following `Calculator` module:
 ```ruby
-RSpecTracer.start do
-  add_filter '/helpers/'
+module Calculator
+  module_function
+
+  def add(a, b) a + b; end
+  def sub(a, b) a - b; end
+  def mul(a, b) a * b; end
 end
 ```
 
-This simple string filter will remove all files that match "/helpers/" in their path.
-
-#### Regex Filter
-
+And the corresponding spec file `spec/calculator_spec.rb`:
 ```ruby
-RSpecTracer.start do
-  add_filter %r{^/helpers/}
-end
-```
+RSpec.describe Calculator do
+  describe '#add' do
+    [
+      [1, 2, 3],
+      [0, 0, 0],
+      [5, 32, 37],
+      [-1, -8, -9],
+      [10, -10, 0]
+    ].each { |a, b, r| it { expect(described_class.add(a, b)).to eq(r) } }
+  end
 
-This simple regex filter will remove all files that start with /helper/ in their path.
+  describe '#sub' do
+    [
+      [1, 2, -1],
+      [10, 0, 10],
+      [37, 5, 32],
+      [-1, -8, 7],
+      [10, 10, 0]
+    ].each do |a, b, r|
+      it 'performs subtraction' do
+        expect(described_class.sub(a, b)).to eq(r)
+      end
+    end
+  end
 
-#### Block Filter
-
-```ruby
-RSpecTracer.start do
-  add_filter do |source_file|
-    source_file[:file_path].include?('/helpers/')
+  describe '#mul' do
+    [
+      [1, 2, -2],
+      [10, 0, 0],
+      [5, 7, 35],
+      [-1, -8, 8],
+      [10, 10, 100]
+    ].each do |a, b, r|
+      it "multiplies #{a} and #{b} to #{r}" do
+        expect(described_class.mul(a, b)).to eq(r)
+      end
+    end
   end
 end
 ```
 
-Block filters receive a `Hash` object and expect your block to return either true
-(if the file is to be removed from the result) or false (if the result should be kept).
-In the above example, the filter will remove all files that match "/helpers/" in their path.
-
-#### Array Filter
-
-```ruby
-RSpecTracer.start do
-  add_filter ['/helpers/', %r{^/utils/}]
-end
+Running the spec with `bundle exec rspec spec/calculator_spec.rb` generates the
+following output:
+```
+Calculator
+  #mul
+    multiplies 5 and 7 to 35
+    multiplies 10 and 10 to 100
+    multiplies 10 and 0 to 0
+    multiplies 1 and 2 to -2 (FAILED - 1)
+    multiplies -1 and -8 to 8
+  #add
+    example at ./spec/calculator_spec.rb:13
+    example at ./spec/calculator_spec.rb:13
+    example at ./spec/calculator_spec.rb:13
+    example at ./spec/calculator_spec.rb:13
+    example at ./spec/calculator_spec.rb:13
+  #sub
+    performs subtraction
+    performs subtraction
+    performs subtraction
+    performs subtraction
+    performs subtraction
 ```
 
-You can pass in an array containing any of the other filter types.
+In this scenario, RSpec Tracer cannot determine the `Calculator#add` and
+`Calculator#sub` group examples.
+
+```
+================================================================================
+   IMPORTANT NOTICE -- RSPEC TRACER COULD NOT IDENTIFY SOME EXAMPLES UNIQUELY
+================================================================================
+RSpec tracer could not uniquely identify the following 10 examples:
+  - Example ID: eabd51a899db4f64d5839afe96004f03 (5 examples)
+      * Calculator#add (spec/calculator_spec.rb:13)
+      * Calculator#add (spec/calculator_spec.rb:13)
+      * Calculator#add (spec/calculator_spec.rb:13)
+      * Calculator#add (spec/calculator_spec.rb:13)
+      * Calculator#add (spec/calculator_spec.rb:13)
+  - Example ID: 72171b502c5a42b9aa133f165cf09ec2 (5 examples)
+      * Calculator#sub performs subtraction (spec/calculator_spec.rb:24)
+      * Calculator#sub performs subtraction (spec/calculator_spec.rb:24)
+      * Calculator#sub performs subtraction (spec/calculator_spec.rb:24)
+      * Calculator#sub performs subtraction (spec/calculator_spec.rb:24)
+      * Calculator#sub performs subtraction (spec/calculator_spec.rb:24)
+```
 
 ## Contributing
 
